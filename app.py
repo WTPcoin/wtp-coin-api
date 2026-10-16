@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 API_TOKEN = os.environ.get("WTP_API_TOKEN", "")
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
