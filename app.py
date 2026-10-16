@@ -2,7 +2,7 @@ import os
 import time
 from flask import Flask, request, jsonify
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 API_TOKEN = os.environ.get("WTP_API_TOKEN", "")
 ALLOWED_ORIGIN = "*"
