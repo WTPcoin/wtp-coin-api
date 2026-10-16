@@ -1,14 +1,24 @@
 import os
 import time
 from flask import Flask, request, jsonify
+from pymongo import MongoClient
+from pymongo.errors import PyMongoError
 
-app = Flask(__name__)
+app = Flask(_name_)
 
 API_TOKEN = os.environ.get("WTP_API_TOKEN", "")
+MONGODB_URI = os.environ.get("MONGODB_URI", "")
 ALLOWED_ORIGIN = "*"
 
-latest_status = None
-last_update = None
+mongo_client = (
+    MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+    if MONGODB_URI else None
+)
+
+stats_collection = (
+    mongo_client["wtpcoin"]["blockchain_stats"]
+    if mongo_client else None
+)
 
 
 @app.after_request
@@ -33,23 +43,28 @@ def home():
 
 @app.route("/api/status", methods=["GET"])
 def status():
-    if latest_status is None:
+    if stats_collection is None:
+        return jsonify({"error": "Database is not configured."}), 503
+
+    try:
+        saved = stats_collection.find_one({"_id": "latest"})
+    except PyMongoError:
+        return jsonify({"error": "Database temporarily unavailable."}), 503
+
+    if saved is None:
         return jsonify({
             "project": "We The People Coin",
             "connected": False,
             "message": "Waiting for your computer to send blockchain statistics."
         }), 200
 
-    result = dict(latest_status)
-    result["connected"] = True
-    result["last_update"] = last_update
-    return jsonify(result)
+    saved.pop("_id", None)
+    saved["connected"] = True
+    return jsonify(saved)
 
 
 @app.route("/api/update", methods=["POST", "OPTIONS"])
 def update():
-    global latest_status, last_update
-
     if request.method == "OPTIONS":
         return "", 204
 
@@ -92,18 +107,34 @@ def update():
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid statistics"}), 400
 
-    latest_status = {
+    saved_stats = {
+        "_id": "latest",
         "project": "We The People Coin",
         "read_only": True,
         "block_count": block_count,
         "latest_block": latest_block,
         "latest_hash": latest_hash,
-        "total_mining_rewards": rewards
+        "total_mining_rewards": rewards,
+        "last_update": int(time.time())
     }
-    last_update = int(time.time())
+
+    if stats_collection is None:
+        return jsonify({"error": "Database is not configured."}), 503
+
+    try:
+        stats_collection.replace_one(
+            {"_id": "latest"},
+            saved_stats,
+            upsert=True
+        )
+    except PyMongoError:
+        return jsonify({"error": "Could not save statistics to database."}), 503
 
     return jsonify({"success": True})
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 10000))
+    )
